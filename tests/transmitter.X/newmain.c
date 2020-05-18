@@ -30,10 +30,29 @@
 // CSN pin needs to be set to low before
 // this command and set high after you're done!
 unsigned char writeSPIByte(unsigned char data) {
-  SSPSTATbits.BF = 0; // set transmit/receiving to unfinished
-  SSPBUF = data; // put data to be transmitted in the FIFO buffer
-  while(SSPSTATbits.BF == 0){} // wait until transmit/receive is finished
-  return SSPBUF;
+    SSPSTATbits.BF = 0; // set transmit/receiving to unfinished
+    SSPBUF = data; // put data to be transmitted in the FIFO buffer
+    while(SSPSTATbits.BF == 0){} // wait until transmit/receive is finished
+    return SSPBUF;
+}
+
+unsigned char checkNRFAlive() {
+    LATCSN = 0;
+    writeSPIByte(0x3D); // feature register, idc about it
+    writeSPIByte(0x04); // write some value to it
+    LATCSN = 1;
+    LATCSN = 0;
+    writeSPIByte(0x1D); // then read it back
+    unsigned char val = writeSPIByte(0xFF); // hopefully it's the same value
+    LATCSN = 1;
+    return val == 0x04;
+}
+
+void SPIGuard() {
+    __delay_ms(10); // if it's about to die it better do so before the check.
+    while(!checkNRFAlive()) {
+        __delay_ms(5);
+    }
 }
 
 void spi_setup() {
@@ -66,6 +85,7 @@ void nrf_setup() {
     __delay_ms(100); // breathing time
 
     // set CONFIG TO PWR_UP, EN_CRC
+    SPIGuard();
     LATCSN = 0;
     writeSPIByte(0x20);
     writeSPIByte(0x0A);
@@ -73,24 +93,28 @@ void nrf_setup() {
 
     // disable auto-ack, RX mode
     // shouldn't have to do this, but it won't TX if you don't
+    SPIGuard();
     LATCSN = 0;
     writeSPIByte(0x21);
     writeSPIByte(0x00);
     LATCSN = 1;
 
     // address width = 5
+    SPIGuard();
     LATCSN = 0;
     writeSPIByte(0x23);
     writeSPIByte(0x03);
     LATCSN = 1;
 
     // data rate = 1MB, signal strength 0dBm
+    SPIGuard();
     LATCSN = 0;
     writeSPIByte(0x26);
     writeSPIByte(0x06);
     LATCSN = 1;
 
     // 4 byte payload for pipe 0
+    SPIGuard();
     LATCSN = 0;
     writeSPIByte(0x31);
     writeSPIByte(0x04);
@@ -98,19 +122,24 @@ void nrf_setup() {
 
     // auto retransmit on, 15 retransmits, 0.25ms delay
     // (accidentally fried the transceivers so they're faulty)
+    SPIGuard();
     LATCSN = 0;
     writeSPIByte(0x24);
     writeSPIByte(0x0F);
     LATCSN = 1;
 
-    // set channel 5
+    // set frequency channel to 5
+    /*
+    SPIGuard();
     LATCSN = 0;
     writeSPIByte(0x25);
     writeSPIByte(0x05);
     LATCSN = 1;
+     */
 
     // set TX address (different register for RX)
     const char *addr = "test1";
+    SPIGuard();
     LATCSN = 0;
     writeSPIByte(0x30);
     for (unsigned char j = 0; j < 5; j++) {
@@ -119,10 +148,30 @@ void nrf_setup() {
     LATCSN = 1;
 }
 
+void nrf_transmit(const char* payload, unsigned char length) {
+    if (length > 32) { // cannot transmit more than 32 bytes at a time!
+        1/0; // too lazy to write error codes.
+        return;
+    }
+    // load a payload
+    SPIGuard();
+    LATCSN = 0;
+    writeSPIByte(0xA0); // W_TX_PAYLOAD
+    for (int j = length-1; j >= 0; j--) {
+        writeSPIByte(payload[j]);
+    }
+    LATCSN = 1;
+
+    // pulse CE to start transmission
+    LATCE = 1;
+    __delay_ms(1);
+    LATCE = 0;
+}
+
 void button_action(char output) {
     LATLED = output; // LED signal
 
-
+    nrf_transmit("XXXXXXX", 7);
 }
 
 void watch_input(void(*action_func)(char param)) {
@@ -168,6 +217,6 @@ void main() {
     while (1) {
         button_action(out);
         out = !out;
-        __delay_ms(500);
+        __delay_ms(100);
     }
 }
