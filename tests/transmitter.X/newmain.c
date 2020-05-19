@@ -91,14 +91,6 @@ void nrf_setup() {
     writeSPIByte(0x0A);
     LATCSN = 1;
 
-    // disable auto-ack, RX mode
-    // shouldn't have to do this, but it won't TX if you don't
-    SPIGuard();
-    LATCSN = 0;
-    writeSPIByte(0x21);
-    writeSPIByte(0x00);
-    LATCSN = 1;
-
     // address width = 5
     SPIGuard();
     LATCSN = 0;
@@ -120,22 +112,13 @@ void nrf_setup() {
     writeSPIByte(0x04);
     LATCSN = 1;
 
-    // auto retransmit on, 15 retransmits, 0.25ms delay
-    // (accidentally fried the transceivers so they're faulty)
+    // auto retransmit settings
     SPIGuard();
     LATCSN = 0;
     writeSPIByte(0x24);
-    writeSPIByte(0x0F);
+    // writeSPIByte(0x0F); // auto retransmit on, 15 retransmits, 0.25ms delay
+    writeSPIByte(0x00); // disabled
     LATCSN = 1;
-
-    // set frequency channel to 5
-    /*
-    SPIGuard();
-    LATCSN = 0;
-    writeSPIByte(0x25);
-    writeSPIByte(0x05);
-    LATCSN = 1;
-     */
 
     // set TX address (different register for RX)
     const char *addr = "test1";
@@ -149,6 +132,14 @@ void nrf_setup() {
 }
 
 void nrf_transmit(const char* payload, unsigned char length) {
+    // set frequency channel to 2
+    // and reset lost packet count
+    SPIGuard();
+    LATCSN = 0;
+    writeSPIByte(0x25);
+    writeSPIByte(0x02);
+    LATCSN = 1;
+    
     if (length > 32) { // cannot transmit more than 32 bytes at a time!
         1/0; // too lazy to write error codes.
         return;
@@ -169,9 +160,22 @@ void nrf_transmit(const char* payload, unsigned char length) {
 }
 
 void button_action(char output) {
-    LATLED = output; // LED signal
+    // LATLED = output; // LED signal
 
     nrf_transmit("XXXXXXX", 7);
+}
+
+void led_success() {
+    SPIGuard();
+    LATCSN = 0;
+    writeSPIByte(0x00);
+    unsigned char status = writeSPIByte(0xFF);
+    LATCSN = 1;
+    if (status & 0x20) {
+        LATLED = 1;
+    } else {
+        LATLED = 0;
+    }
 }
 
 void watch_input(void(*action_func)(char param)) {
@@ -217,6 +221,7 @@ void main() {
     while (1) {
         button_action(out);
         out = !out;
-        __delay_ms(100);
+        __delay_ms(10);
+        led_success();
     }
 }
