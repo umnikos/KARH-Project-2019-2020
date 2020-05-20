@@ -2,7 +2,7 @@
  * File:   newmain.c
  * Author: umnikos
  *
- * Created on May 13, 2020, 3:36 PM
+ * Created on May 20, 2020, 10:21 PM
  *
  * PIN NOTES:
  * D2 - LED OUT
@@ -78,18 +78,17 @@ void spi_setup() {
     SSPCON1bits.SSPEN = 1; // enable SPI
 }
 
-// TX configuration
 void nrf_setup() {
-    LATCE = 0; // In TX mode CE enables transmission
+    LATCE = 0; // In RX mode CE enables receiving
     __delay_ms(1);
     LATCSN = 1; // CSN is active-low, so set it high
     __delay_ms(100); // breathing time
     
-    // set CONFIG to PWR_UP, EN_CRC, PTX
+    // set CONFIG to PWR_UP, EN_CRC, PRX
     SPIGuard();
     LATCSN = 0;
     writeSPIByte(0x20);
-    writeSPIByte(0x0A);
+    writeSPIByte(0x0B);
     LATCSN = 1;
 
     // disable auto retransmit
@@ -120,11 +119,11 @@ void nrf_setup() {
     writeSPIByte(0x04);
     LATCSN = 1;
 
-    // set TX address (different register for RX)
+    // set RX address for pipe 0
     const char *addr = "test1";
     SPIGuard();
     LATCSN = 0;
-    writeSPIByte(0x30);
+    writeSPIByte(0x2A);
     for (unsigned char j = 0; j < 5; j++) {
         writeSPIByte(addr[j]);
     }
@@ -158,10 +157,46 @@ void nrf_transmit(const char* payload, unsigned char length) {
     LATCE = 0;
 }
 
+void nrf_receive(char* buffer, unsigned char length) {
+    // TODO
+    LATCE = 1; // enable receiving
+    while (1) {
+        __delay_ms(10); // wait for some data to arrive
+        SPIGuard();
+        LATCSN = 0;
+        writeSPIByte(0x17);
+        unsigned char status = writeSPIByte(0xFF);
+        LATCSN = 1;
+        if ((status & 0x01) == 0) { // if RX_FIFO not empty
+            SPIGuard();
+            LATCSN = 0;
+            writeSPIByte(0x61);
+            for (int j = length-1; j >= 0; j--) {
+                buffer[j] = writeSPIByte(0xFF);
+            }
+            LATCSN = 1;
+            break;
+        }
+    }
+    LATCE = 0; // end of receive
+}
+
 void button_action(char output) {
     LATLED = output; // LED signal
 
-    nrf_transmit("XXXXXXX", 7);
+    const unsigned char length = 7;
+    char buffer[7] = "lollol";
+    nrf_receive(buffer, length);
+    char a0,a1,a2,a3,a4,a5,a6;
+    a0 = buffer[0];
+    a1 = buffer[1];
+    a2 = buffer[2];
+    a3 = buffer[3];
+    a4 = buffer[4];
+    a5 = buffer[5];
+    a6 = buffer[6];
+    LATLED = !output;
+    LATLED = output;
 }
 
 void led_success() {
