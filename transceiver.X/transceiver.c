@@ -60,9 +60,11 @@ byte checkNRFAlive() {
 
 void SPIGuard() {
     __delay_ms(10); // if it's about to die it better do so before the check.
+    /* this check has never ever failed
+     * so let's just replace it with the actual message.
     while(!checkNRFAlive()) {
         __delay_ms(15);
-    }
+    } */
 }
 
 void spi_setup() {
@@ -101,18 +103,38 @@ void nrf_setup() {
     writeSPIByte(0x01);
     LATCSN = 1;
     
-    // set CONFIG
+    // set CONFIG.
     SPIGuard();
     LATCSN = 0;
     writeSPIByte(0x20);
-    if (mode == 0) { // TX -> PWR_UP, EN_CRC, PTX
-        writeSPIByte(0x0A);
+    if (mode == 0) { // TX -> PWR_UP, PTX
+        writeSPIByte(0b00000010);
     }
-    if (mode == 1) { // RX -> PWR_UP, EN_CRC, PRX
-        writeSPIByte(0x0B);
+    if (mode == 1) { // RX -> PWR_UP, PRX
+        writeSPIByte(0b00000011);
     }
     LATCSN = 1;
-
+    
+    // disable auto-ack
+    SPIGuard();
+    LATCSN = 0;
+    writeSPIByte(0x21);
+    writeSPIByte(0x00);
+    LATCSN = 1;
+    
+    // set CONFIG again so that CRC is disabled
+    // (auto-ack forces CRC to be enabled)
+    SPIGuard();
+    LATCSN = 0;
+    writeSPIByte(0x20);
+    if (mode == 0) { // TX -> PWR_UP, PTX
+        writeSPIByte(0b00000010);
+    }
+    if (mode == 1) { // RX -> PWR_UP, PRX
+        writeSPIByte(0b00000011);
+    }
+    LATCSN = 1;
+    
     // disable auto retransmit
     SPIGuard();
     LATCSN = 0;
