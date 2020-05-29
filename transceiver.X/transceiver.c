@@ -5,6 +5,7 @@
  * Created on May 21, 2020, 10:38 PM
  *
  * PIN NOTES:
+ * B0 - IRQ INTERRUPT
  * D2 - LED OUT
  * C2 - BUTTON IN
  * C3 - SCL
@@ -35,6 +36,8 @@
  */
 const byte mode = 1;
 
+char out = 1; // an output variable for the LED
+
 // CSN pin needs to be set to low before
 // this command and set high after you're done!
 byte writeSPIByte(byte data) {
@@ -59,7 +62,7 @@ byte checkNRFAlive() {
 }
 
 void SPIGuard() {
-    __delay_ms(10); // if it's about to die it better do so before the check.
+    //__delay_ms(10); // if it's about to die it better do so before the check.
     /* this check has never ever failed
      * so let's just replace it with the actual message.
     while(!checkNRFAlive()) {
@@ -179,6 +182,19 @@ void nrf_setup() {
     LATCSN = 1;
 }
 
+// configure interrupts (both internal and external)
+void int_setup() {
+    TRISBbits.TRISB0 = 1; // set INT pin to read (bruh)
+    ANSELBbits.ANSB0 = 0; // digital read
+    
+    INTCONbits.GIE = 1; // global interrupt enable
+    INTCONbits.PEIE = 1; // enable interrupt from peripherals
+    //INTCONbits.INTE = 1; // interrupt enable
+    //OPTION_REGbits.INTEDG = 0; // falling edge detect
+    INTCONbits.IOCIE = 1; // interrupt on change enable
+    IOCBNbits.IOCBN0 = 1; // falling edge detect
+}
+
 void nrf_transmit(const char* payload, byte length) {
     // set frequency channel to 2
     // and reset lost packet count
@@ -206,50 +222,79 @@ void nrf_transmit(const char* payload, byte length) {
     LATCE = 0;
 }
 
+char* receive_buffer;
+byte receive_length;
 void nrf_receive(char* buffer, byte length) {
-    // TODO
+    receive_buffer = buffer;
+    receive_length = length;
     LATCE = 1; // enable receiving
-    while (1) {
-        __delay_ms(10); // wait for some data to arrive
+    SLEEP();
+}
+
+void nrf_postreceive() {
+    LATCE = 0; // stop receiving please.
+    char* buffer = receive_buffer;
+    byte length = receive_length;
+    // perform check if any data was received (not sure if it's needed)
+    SPIGuard();
+    LATCSN = 0;
+    writeSPIByte(0x17);
+    byte status = writeSPIByte(0xFF);
+    LATCSN = 1;
+    if ((status & 0x01) == 0) { // if RX_FIFO not empty
+        // extract data from nrf into a buffer
         SPIGuard();
         LATCSN = 0;
-        writeSPIByte(0x17);
-        byte status = writeSPIByte(0xFF);
+        writeSPIByte(0x61);
+        for (int j = length-1; j >= 0; j--) {
+            buffer[j] = writeSPIByte(0xFF);
+        }
         LATCSN = 1;
-        if ((status & 0x01) == 0) { // if RX_FIFO not empty
-            SPIGuard();
-            LATCSN = 0;
-            writeSPIByte(0x61);
-            for (int j = length-1; j >= 0; j--) {
-                buffer[j] = writeSPIByte(0xFF);
-            }
-            LATCSN = 1;
-            break;
+    }
+    // reset IRQ back to high
+    SPIGuard();
+    LATCSN = 0;
+    writeSPIByte(0x27);
+    writeSPIByte(0xFF);
+    LATCSN = 1;
+    // 7 variables for debugging purposes
+    char a0,a1,a2,a3,a4,a5,a6;
+    a0 = buffer[0];
+    a1 = buffer[1];
+    a2 = buffer[2];
+    a3 = buffer[3];
+    a4 = buffer[4];
+    a5 = buffer[5];
+    a6 = buffer[6];
+    NOP();
+    NOP();
+    byte count = 0;
+    for (byte i=0; i<length; i++) {
+        if (buffer[i] == 'X') {
+            count++;
         }
     }
-    LATCE = 0; // end of receive
+    if (count >= 3) {
+        LATLED = out; // LED signal
+    }
+}
+
+void __interrupt(high_priority) nrf_int() {
+    if (IOCBFbits.IOCBF0) {
+        IOCBF &= 0b11111110;
+        nrf_postreceive();
+    }
 }
 
 void button_action(char output) {
-    LATLED = output; // LED signal
-    
     if (mode == 0) {
+        LATLED = output; // LED signal
         nrf_transmit("XXXXXXX", 7);
     }
     if (mode == 1) {
         const byte length = 7;
         char buffer[7] = "lollol";
         nrf_receive(buffer, length);
-        char a0,a1,a2,a3,a4,a5,a6;
-        a0 = buffer[0];
-        a1 = buffer[1];
-        a2 = buffer[2];
-        a3 = buffer[3];
-        a4 = buffer[4];
-        a5 = buffer[5];
-        a6 = buffer[6];
-        LATLED = !output;
-        LATLED = output;
     }
 }
 
@@ -291,6 +336,7 @@ void watch_input(void(*action_func)(char param)) {
     }
 }
 
+void mainloop();
 void main() {
 
     OSCCON = 0b01110010; // set oscillator settings
@@ -302,13 +348,17 @@ void main() {
 
     spi_setup();
     nrf_setup();
+    int_setup();
 
+
+    mainloop();
+}
+
+void mainloop() {
     //watch_input(&button_action);
-    char out = 1;
     while (1) {
         button_action(out);
         out = !out;
-        __delay_ms(100);
     }
 }
 
