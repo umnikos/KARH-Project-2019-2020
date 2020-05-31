@@ -15,8 +15,24 @@
  * E2 - TRANSMITTER CE
  */
 
+/* <IMPORTS> */
+
 #include <xc.h>
 #include <pic16f1519.h>
+
+/* <CONFIGURATION> */
+
+// MODES:
+// 0 - TX (transmitter)
+// 1 - RX (receiver)
+#define mode 1
+
+// how long the transmitted/received message is
+#define receive_length 1
+// how many bytes need to be correct from the received message
+#define correctness_threshold 1
+
+/* <DEFINITIONS> */
 
 #define _XTAL_FREQ 8000000 // 8 MHz
 #pragma config WDTE=OFF // turn off watchdog timer
@@ -30,20 +46,19 @@
 #define LATCSN LATEbits.LATE1
 #define LATCE LATEbits.LATE2
 
-/* MODES:
- * 0 - TX (transmitter)
- * 1 - RX (receiver)
- */
-#define mode 1
-
 char out = 1; // an output variable for the LED
 
-#define receive_length 1 // how long the received message is
-#define correctness_threshold 1 // how many bytes need to be correct
 char receive_buffer[receive_length];
 #if receive_length > 32 // cannot transmit more than 32 bytes at a time
 #error
 #endif
+
+// printable antipodal characters
+// (their sum is 0b01111111)
+#define CHAR_OFF 'N'
+#define CHAR_ON  '1'
+
+/* <CODE> */
 
 // CSN pin needs to be set to low before
 // this command and set high after you're done!
@@ -181,12 +196,12 @@ void int_setup() {
 }
 
 #if mode == 0
-void nrf_transmit(const char* payload) {
+void nrf_transmit(const char payload) {
     // load a payload
     LATCSN = 0;
     writeSPIByte(0xA0); // W_TX_PAYLOAD
     for (int j = receive_length-1; j >= 0; j--) {
-        writeSPIByte(payload[j]);
+        writeSPIByte(payload);
     }
     LATCSN = 1;
 
@@ -226,14 +241,25 @@ void nrf_postreceive() {
     writeSPIByte(0xFF);
     LATCSN = 1;
     NOP(); // for debugging purposes
-    byte count = 0;
+    // decode received message into a command
+    byte count;
+    count = 0;
     for (byte i=0; i<receive_length; i++) {
-        if (receive_buffer[i] == 'X') {
+        if (receive_buffer[i] == CHAR_OFF) {
             count++;
         }
     }
     if (count >= correctness_threshold) {
-        LATLED = out; // LED signal
+        LATLED = 0;
+    }
+    count = 0;
+    for (byte i=0; i<receive_length; i++) {
+        if (receive_buffer[i] == CHAR_ON) {
+            count++;
+        }
+    }
+    if (count >= correctness_threshold) {
+        LATLED = 1;
     }
 }
 #endif
@@ -249,24 +275,27 @@ void __interrupt() nrf_int() {
     }
 }
 
+#if mode == 0
 void button_action() {
-    #if mode == 0
-        LATLED = out; // LED signal
-        nrf_transmit("XXXXXXX");
-    #endif
-    #if mode == 1
-        nrf_receive();
-    #endif
+    LATLED = out; // LED signal
+    if (out == 0) {
+        for (int i=0; i<5000; i++) {
+            nrf_transmit(CHAR_OFF);
+        }
+    } else {
+        for (int i=0; i<5000; i++) {
+            nrf_transmit(CHAR_ON);
+        }
+    }
 }
+#endif
 
-/* for button input
-void watch_input(void(*action_func)(char param)) {
+#if mode == 0
+void watch_input(void(*action_func)()) {
     // remember the last 2 values of the input
     // for noise-free edge detection
     char tailInput = 1;
     char lastInput = 1;
-    char output = 0;
-    button_action(output);
 
     // watch loop
     while (1) {
@@ -275,8 +304,8 @@ void watch_input(void(*action_func)(char param)) {
 
         // falling edge
         if (tailInput == 1 && lastInput == 0 && currentInput == 0) {
-            output = !output;
-            button_action(output);
+            button_action();
+            out = !out;
         }
 
         tailInput = lastInput;
@@ -284,7 +313,7 @@ void watch_input(void(*action_func)(char param)) {
         __delay_ms(noise_wait);
     }
 }
-*/
+#endif
 
 void main() {
     OSCCON = 0b01110010; // set oscillator settings
@@ -298,10 +327,14 @@ void main() {
     int_setup();
     nrf_setup();
 
-    //watch_input(&button_action);
-    while (1) {
-        button_action();
-        out = !out;
-    }
+    #if mode == 0
+        watch_input(&button_action);
+    #endif
+    #if mode == 1
+        while (1) {
+            nrf_receive();
+            out = !out;
+        }
+    #endif
 }
 
