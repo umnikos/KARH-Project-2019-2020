@@ -38,7 +38,8 @@
 
 char out = 1; // an output variable for the LED
 
-#define receive_length 7 // how long the received message is
+#define receive_length 1 // how long the received message is
+#define correctness_threshold 1 // how many bytes need to be correct
 char receive_buffer[receive_length];
 #if receive_length > 32 // cannot transmit more than 32 bytes at a time
 #error
@@ -47,10 +48,17 @@ char receive_buffer[receive_length];
 // CSN pin needs to be set to low before
 // this command and set high after you're done!
 byte writeSPIByte(byte data) {
+    // this function is not reentrant so it shouldn't be interrupted
+    byte previousGIE = INTCONbits.GIE;
+    INTCONbits.GIE = 0;
+    
     SSPBUF = data; // put data to be transmitted in the FIFO buffer
     SSPSTATbits.BF = 0; // set transmit/receiving to unfinished
     while(SSPSTATbits.BF == 0){} // wait until transmit/receive is finished
-    return SSPBUF;
+    
+    byte result = SSPBUF;
+    INTCONbits.GIE = previousGIE;
+    return result;
 }
 
 void spi_setup() {
@@ -137,10 +145,10 @@ void nrf_setup() {
     writeSPIByte(0x06);
     LATCSN = 1;
 
-    // 4 byte payload for pipe 0
+    // 1 byte payload for pipe 0
     LATCSN = 0;
     writeSPIByte(0x31);
-    writeSPIByte(0x04);
+    writeSPIByte(0x01);
     LATCSN = 1;
 
     // set address for pipe 0
@@ -186,6 +194,7 @@ void nrf_transmit(const char* payload) {
     LATCE = 1;
     __delay_us(20);
     LATCE = 0;
+    // __delay_us(100); // delay between transmissions
 }
 #endif
 
@@ -223,7 +232,7 @@ void nrf_postreceive() {
             count++;
         }
     }
-    if (count >= 3) {
+    if (count >= correctness_threshold) {
         LATLED = out; // LED signal
     }
 }
