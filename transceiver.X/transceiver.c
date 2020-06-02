@@ -46,7 +46,8 @@
 #define LATCSN LATEbits.LATE1
 #define LATCE LATEbits.LATE2
 
-char out = 1; // an output variable for the LED
+// TX mode - what state to send next (CHAR_ON or CHAR_OFF)
+char out = 1;
 
 char receive_buffer[receive_length];
 #if receive_length > 32 // cannot transmit more than 32 bytes at a time
@@ -55,22 +56,22 @@ char receive_buffer[receive_length];
 
 // printable antipodal characters
 // (their sum is 0b01111111)
-#define CHAR_OFF 'N'
-#define CHAR_ON  '1'
+#define CHAR_OFF 'N' // 0b01001110
+#define CHAR_ON  '1' // 0b00110001
 
 /* <CODE> */
 
 // CSN pin needs to be set to low before
 // this command and set high after you're done!
 byte writeSPIByte(byte data) {
-    // this function is not reentrant so it shouldn't be interrupted
+    // this function is non-reentrant so it shouldn't be interrupted
     byte previousGIE = INTCONbits.GIE;
     INTCONbits.GIE = 0;
-    
+
     SSPBUF = data; // put data to be transmitted in the FIFO buffer
     SSPSTATbits.BF = 0; // set transmit/receiving to unfinished
     while(SSPSTATbits.BF == 0){} // wait until transmit/receive is finished
-    
+
     byte result = SSPBUF;
     INTCONbits.GIE = previousGIE;
     return result;
@@ -195,6 +196,30 @@ void int_setup() {
     IOCBNbits.IOCBN0 = 1; // falling edge detect
 }
 
+void timer1_reset() {
+    TMR1H = 240; // preset for timer1 MSB register
+    TMR1L = 221; // preset for timer1 LSB register
+}
+
+// Timer0 is disabled during sleep so we use Timer1
+#if mode == 1
+void timer1_setup() {
+    //Timer1 Registers Prescaler= 1 - TMR1 Preset = 61661 - Freq = 2.00 Hz - Period = 0.500000 seconds
+    T1CONbits.T1CKPS1 = 0;   // bits 5-4  Prescaler Rate Select bits
+    T1CONbits.T1CKPS0 = 0;   // bit 4
+    T1CONbits.T1OSCEN = 1;   // bit 3 Timer1 Oscillator Enable Control bit 1 = on
+    T1CONbits.nT1SYNC = 1;   // bit 2 Timer1 External Clock Input Synchronization Control bit...1 = Do not synchronize external clock input
+    T1CONbits.TMR1CS = 0b11; // bit 1 Timer1 Clock Source Select bit...0b11 = LFINTOSC
+
+    TMR1H = 0; // clear offset registers before enabling interrupts
+    TMR1L = 0;
+    PIR1bits.TMR1IF = 0;
+    PIE1bits.TMR1IE = 1; // enable Timer1 interrupts on overflow
+    timer1_reset();      // (re)set offset registers
+    T1CONbits.TMR1ON = 1; // bit 0 enables timer
+}
+#endif
+
 #if mode == 0
 void nrf_transmit(const char payload) {
     // load a payload
@@ -216,7 +241,9 @@ void nrf_transmit(const char payload) {
 #if mode == 1
 void nrf_receive() {
     LATCE = 1; // enable receiving
-    SLEEP(); // sleep until interrupt calls nrf_postreceive()
+    __delay_ms(1); // wait for a receive
+    LATCE = 0; // disable receiving
+    SLEEP(); // nothing received, go to sleep
 }
 
 void nrf_postreceive() {
@@ -242,29 +269,28 @@ void nrf_postreceive() {
     LATCSN = 1;
     NOP(); // for debugging purposes
     // decode received message into a command
-    byte count;
-    count = 0;
-    for (byte i=0; i<receive_length; i++) {
-        if (receive_buffer[i] == CHAR_OFF) {
-            count++;
-        }
-    }
-    if (count >= correctness_threshold) {
-        LATLED = 0;
-    }
-    count = 0;
+    byte on_count = 0;
+    byte off_count = 0;
     for (byte i=0; i<receive_length; i++) {
         if (receive_buffer[i] == CHAR_ON) {
-            count++;
+            on_count++;
+        } else if (receive_buffer[i] == CHAR_OFF) {
+            off_count++;
         }
     }
-    if (count >= correctness_threshold) {
+    if (on_count >= correctness_threshold) {
         LATLED = 1;
+        SLEEP();
+    } else if (off_count >= correctness_threshold) {
+        LATLED = 0;
+        SLEEP();
+    } else {
+        nrf_receive();
     }
 }
 #endif
 
-void __interrupt() nrf_int() {
+void __interrupt() int_handler() {
     if (IOCBFbits.IOCBF0) {
         IOCBF &= 0b11111110;
         // IRQ can be set when a packet is received...
@@ -272,6 +298,14 @@ void __interrupt() nrf_int() {
             nrf_postreceive();
         #endif
         // ...or when an ACK is received (disabled currently)
+        return;
+    }
+    if (PIR1bits.TMR1IF == 1) {
+        timer1_reset();
+        PIR1bits.TMR1IF = 0;
+        #if mode == 1
+            nrf_receive();
+        #endif
     }
 }
 
@@ -279,11 +313,11 @@ void __interrupt() nrf_int() {
 void button_action() {
     LATLED = out; // LED signal
     if (out == 0) {
-        for (int i=0; i<5000; i++) {
+        for (int i=0; i<5050; i++) {
             nrf_transmit(CHAR_OFF);
         }
     } else {
-        for (int i=0; i<5000; i++) {
+        for (int i=0; i<5050; i++) {
             nrf_transmit(CHAR_ON);
         }
     }
@@ -322,6 +356,7 @@ void main() {
     TRISDbits.TRISD2 = 0; // output LED
     TRISCbits.TRISC2 = 1; // input BUTTON
     ANSELCbits.ANSC2 = 0; // digital read C2
+    LATLED = 0;
 
     spi_setup();
     int_setup();
@@ -331,10 +366,8 @@ void main() {
         watch_input(&button_action);
     #endif
     #if mode == 1
-        while (1) {
-            nrf_receive();
-            out = !out;
-        }
+        timer1_setup();
+        SLEEP();
     #endif
 }
 
