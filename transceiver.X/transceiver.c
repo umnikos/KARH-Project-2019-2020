@@ -5,6 +5,11 @@
  * Created on May 21, 2020, 10:38 PM
  *
  * PIN NOTES:
+ * A0 - CAPACITOR POSITIVE
+ * A1 - CAPACITOR ENABLE
+ * A2 - CAPACITOR NEGATIVE
+ * A3 - HBRIDGE 'N'
+ * A4 - HBRIDGE '1'
  * B0 - IRQ INTERRUPT
  * D2 - LED OUT
  * C2 - BUTTON IN
@@ -32,6 +37,9 @@
 // how many bytes need to be correct from the received message
 #define correctness_threshold 1
 
+// how long to recharge the voltage doubling capacitor
+#define recharge_ms 50
+
 /* <DEFINITIONS> */
 
 #define _XTAL_FREQ 8000000 // 8 MHz
@@ -40,6 +48,11 @@
 #define byte unsigned char
 
 // all output pins as LAT abbreviations
+#define nCAPPO LATAbits.LATA0
+#define nCAPEN LATAbits.LATA1
+#define CAPNEG LATAbits.LATA2
+#define HBRN LATAbits.LATA3
+#define HBR1 LATAbits.LATA4
 #define LATLED LATDbits.LATD2
 #define LATSCL LATCbits.LATC3
 #define LATSDO LATCbits.LATC5
@@ -60,6 +73,61 @@ char receive_buffer[receive_length];
 #define CHAR_ON  '1' // 0b00110001
 
 /* <CODE> */
+
+#if mode == 1
+void capacitor_recharge() {
+    nCAPPO = !1;
+    CAPNEG = 1;
+    __delay_ms(recharge_ms);
+    nCAPPO = !0;
+    CAPNEG = 0;
+}
+
+void relay_reset() {
+    HBRN = 0;
+    HBR1 = 0;
+    nCAPEN = !0;
+    nCAPPO = !0;
+    CAPNEG = 0;
+}
+
+void relay_setup() {
+    // set all pins to output
+    TRISA = 0;
+    // disable H-bridge
+    HBRN = 0;
+    HBR1 = 0;
+    // charge capacitor
+    nCAPEN = !0;
+    CAPNEG = 1;
+    nCAPPO = !1;
+    __delay_ms(500);
+    CAPNEG = 0;
+    nCAPPO = !0;
+}
+
+void relay_n() {
+    relay_reset();
+    nCAPEN = !1;
+    HBRN = 1;
+    __delay_ms(50);
+    HBRN = 0;
+    nCAPEN = !0;
+    capacitor_recharge();
+    relay_reset();
+}
+
+void relay_1() {
+    relay_reset();
+    nCAPEN = !1;
+    HBR1 = 1;
+    __delay_ms(50);
+    HBR1 = 0;
+    nCAPEN = !0;
+    capacitor_recharge();
+    relay_reset();
+}
+#endif
 
 // CSN pin needs to be set to low before
 // this command and set high after you're done!
@@ -280,9 +348,11 @@ void nrf_postreceive() {
     }
     if (on_count >= correctness_threshold) {
         LATLED = 1;
+        relay_1();
         SLEEP();
     } else if (off_count >= correctness_threshold) {
         LATLED = 0;
+        relay_n();
         SLEEP();
     } else {
         nrf_receive();
@@ -349,18 +419,23 @@ void watch_input(void(*action_func)()) {
 }
 #endif
 
-void main() {
-    OSCCON = 0b01110010; // set oscillator settings
-
-    // setup button and LED I/O
+void led_setup() {
     TRISDbits.TRISD2 = 0; // output LED
     TRISCbits.TRISC2 = 1; // input BUTTON
     ANSELCbits.ANSC2 = 0; // digital read C2
     LATLED = 0;
+}
 
+void main() {
+    OSCCON = 0b01110010; // set oscillator settings
+
+    #if mode == 1
+        relay_setup();
+    #endif
     spi_setup();
-    int_setup();
     nrf_setup();
+    led_setup();
+    int_setup();
 
     #if mode == 0
         watch_input(&button_action);
