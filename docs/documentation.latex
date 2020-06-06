@@ -1,0 +1,36 @@
+\documentclass[a4paper,12pt]{article}
+%\usepackage{indentfirst}
+\usepackage{nameref}
+\usepackage{graphicx}
+\begin{document}
+
+\title{Yet another smart lighting device}
+\author{Alex Stefanov}
+\date{June 6, 2020}
+\maketitle
+
+\section{Product description}
+Most smart lighting products on the market come in the form of a smart lightbulb or a smart power plug. These products need to be connected to a hub and do not operate when the light bulb has been manually turned off from the wall switch. So while it's possible to use them as both normal light bulbs and smart bulbs, you cannot do both at the same time.
+
+This product fixes the problem by replacing the light switch instead of the light bulb, which allows for the smart element and the wall switch to be the same device. Smart light switches already exist, but they require there to be both a hot and a neutral wire hooked up to it (to supply power to the switch itself), but many households do not have such luxury. Thus, this product is powered entirely through two AA batteries and draws very little current, enabling it to last 5+ years without swapping out its batteries.
+\section{Limitations}
+Communication between the remote and the switch is achieved through means not that different from Bluetooth (see section \nameref{operation}), so it does not work over the internet or from very big distances.
+\section{Installation and usage}
+Insert two AA batteries and then install just like a normal light switch. The remote included in the package works only for that one switch, so if you have several light switches in your home, you'll also have several remotes.
+\section{Method of operation} \label{operation}
+The basic operation is the following: The physical switch is an SPDT switch hooked to an SPDT latching relay in a traveler system configuration. The relay is controlled by a microcontroller which listens for a signal for which direction to switch the relay to (so that duplicate signals don't just toggle the lamp several times) and the remote keeps track of what state it last sent so it can send alternate instructions on subsequent button presses.
+
+The remote and the light switch both contain an nRF24L01 for communication. Due to the component's high power usage during listening mode, it is programmed to be enabled for only 1ms every 500ms, which is what allows for the long battery life but also leads to some usage delay.
+
+A latching relay is used so that if the batteries run out the switch can still operate as a normal switch. It is supposed to operate with 5V but 2 batteries can only provide 3V, thus a capacitor is used to double the controlling voltage.
+
+An error during the prototyping phase led to the permanent damage of the nRF24L01 modules the creator had available on hand, so the code was shaped around them to not use CRC (cyclic redundancy checking), auto-acknowledgment or packet retransmission. Nevertheless, the receive rate is very good with most packets getting successfully received.
+
+\newpage
+\section{Schematic}
+\begin{figure}[h!]
+\centering
+\includegraphics[width=1\textwidth]{"schematics/schematic-EasyEDA-cropped"}
+\end{figure}
+
+\end{document}
