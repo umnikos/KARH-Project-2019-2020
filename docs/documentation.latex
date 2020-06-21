@@ -23,8 +23,38 @@ The basic operation is the following: The physical switch is an SPDT switch hook
 The remote and the light switch both contain an nRF24L01 for communication. Due to the component's high power usage during listening mode, it is programmed to be enabled for only 1ms every 500ms, which is what allows for the long battery life but also leads to some usage delay.
 
 A latching relay is used so that if the batteries run out the switch can still operate as a normal switch. It is supposed to operate with 5V but 2 batteries can only provide 3V, thus a capacitor is used to double the controlling voltage.
+\section{Difficulties during realization}
+The original prototype would have been way easier to create on an Arduino, but since the creator only had 1 arduino and you need 2 separate modules to prove that the communication works the entire prototype was made to work on PIC16F1519 microcontrollers. This proved challenging as he has never worked with microcontrollers and spent a big portion of the development time hopping between development environments until finally choosing to program using an MPLAB IDE and a PICkit3 programmer.
 
-An error during the prototyping phase led to the permanent damage of the nRF24L01 modules the creator had available on hand, so the code was shaped around them to not use CRC (cyclic redundancy checking), auto-acknowledgment or packet retransmission. Nevertheless, the receive rate is very good with most packets getting successfully received.
+The design of the circuitry has evolved over the development time, most notably the way the light switch is going to get power. The original idea was to power a battery while the lamp is turned on and draw power from that battery while the lamp is turned off. While that is a solid idea on paper, the lifetime of rechargeable batteries is in the magnitute of a few years, so it's cheaper and easier to just use a standard non-rechargeable battery and draw as little current as possible to preserve it for longer.
+
+An error during the prototyping phase led to the permanent damage of the nRF24L01 modules the creator had available on hand while prototyping, so the code was shaped around them to not use CRC (cyclic redundancy checking), auto-acknowledgment or packet retransmission. Nevertheless, the receive rate is very good with most packets getting successfully received.
+\section{Economic aspects}
+The calculations here are for both the remote and the light switch itself. In its current state the remote is not powered by batteries and isn't optimized to run on batteries, either.
+\newline \newline
+\begin{tabular}{|c|c|c|c|}
+  \hline
+  count & part & part name & cost/part \\
+  \hline
+  1 & relay                & G6AU-274P-ST-US DC5       & 5.87 BGN \\
+  2 & microcontroller      & PIC16F1519                & 3.87 BGN \\
+  1 & SPDT lamp switch     &                           & $\sim$2.50 BGN \\
+  2 & transceiver          & nRF24L01                  & $\sim$2.00 BGN \\
+  1 & battery holder       & KEYSTONE 2462             & 1.68 BGN \\
+  4 & PNP transistor       & BC557C                    & 0.03 BGN \\
+  3 & NPN transistor       & BC549C                    & 0.03 BGN \\
+  1 & button               & TS-06E (TS-3)             & 0.06 BGN \\
+  2 & capacitor 100nF      & CML 100nF 50V X7R P2.5    & 0.09 BGN \\
+  2 & capacitor 100$\mu$ F & CE 100uF 25V 105C Fujicon & 0.04 BGN \\
+  1 & capacitor 470$\mu$ F & CE 470uF 25V 105C Fujicon & 0.10 BGN \\
+  4 & diode                & 1N4148 DC                 & 0.01 BGN \\
+  2 & LED                  &                           & $\sim$0.10 BGN \\
+  9 & resistor 330$\Omega$ &                           & $\sim$0.04 BGN \\
+  2 & resistor 10k$\Omega$ &                           & $\sim$0.04 BGN \\
+  \hline
+  36 & & & $\sim$23.46 BGN \\
+  \hline
+\end{tabular}
 
 \newpage
 \section{Schematic}
